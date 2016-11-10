@@ -1,0 +1,636 @@
+---
+output: word_document
+---
+                       ---
+title: "TCGA p53 Mutations and NOX4 Differential Expression Analysis"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, dpi=600, include=T)
+```
+
+```{r Data Loadng and Clean Up, include=F}
+require(dplyr)
+require(ggplot2)
+# function for num of samples
+give.n <- function(x){
+  return(c(y = median(x)*1.5, label = length(x))) 
+  # experiment with the multiplier to find the perfect position
+}
+# function for median
+med.n <- function(x){
+  return(c(y = median(x)*0.8, label = round(mean(x),2))) 
+  # experiment with the multiplier to find the perfect position
+}
+
+
+# Extracting Data from cbioportal (manually, no R codes used)
+  # http://www.cbioportal.org/
+  # select all case studies
+  # query the genes and all its expression data regardless of exp level, e.g. GENE:EXP>=0 EXP<0
+
+P53_exp  <- read.delim(file="TP53_Expression_All.txt", header = T, na.strings = "NA")   # p53 with Expression Data
+  P53_exp <- P53_exp %>% select(P53.Mutation = Mutation, Cancer.Study, Sample.Id)
+  P53_exp <- na.omit(P53_exp) # important to remove missing values now to avoid mixing with 'no mutation'
+  # summary(is.na(P53_exp))
+  
+P53_mut <- read.delim("mutation_table_TP53.tsv", header=T, na.strings = "NA")
+  P53_mut <- P53_mut %>% select(P53.Mutation = AA.change, Cancer.Study, Sample.Id = Sample.ID)
+  P53_mut <- na.omit(P53_mut) 
+  # summary(is.na(P53_mut))
+
+NOX4_exp  <- read.delim(file="NOX4_Expression_All.txt")   # NADPH OX 4
+  NOX4_exp  <- NOX4_exp %>% select(NOX4 = Value, NOX4.Mutation = Mutation, Cancer.Study, Sample.Id)
+  # summary(is.na(NOX4_exp))
+  
+# Data extract of P53 mutation status of samples
+  #'Not Sequenced' data is now designated as NA
+  P53_mut$P53.Mutation[(P53_mut$P53.Mutation == "Not Sequenced") ]   <- NA
+  P53_mut$P53.Mutation[(P53_mut$P53.Mutation == "[Not Available]") ] <- NA
+                 ##P53.Mutation    Cancer.Study    Sample.Id      
+             ##Mode :logical   Mode :logical   Mode :logical  
+             ##FALSE:6591      FALSE:9121      FALSE:9121     
+             ##TRUE :2530      NA's :0         NA's :0         # meaning 2530 were not sequenced or avaliable 
+             ##NA's :0    
+  
+  P53_exp$P53.Mutation[(P53_exp$P53.Mutation == "Not Sequenced") ]   <- NA
+  P53_exp$P53.Mutation[(P53_exp$P53.Mutation == "[Not Available]") ] <- NA
+                    ## P53.Mutation    Cancer.Study    Sample.Id      
+                ## Mode :logical   Mode :logical   Mode :logical  
+                ## FALSE:10013     FALSE:10015     FALSE:10015    # meaning 2 were NA
+                ## TRUE :2         NA's :0         NA's :0        
+                ## NA's :0  
+  
+# Merging two p53 Data Files to get more mutant reads on all ID's
+P53_com <- full_join(P53_mut, P53_exp, by = "Sample.Id", suffix = c(".mut_file" , ".exp_file"))
+P53_com <- select(P53_com, Sample.Id, everything())  
+
+# Merged Copy, for reference later
+P53_com.ref <- full_join(P53_mut, P53_exp, by = "Sample.Id", suffix = c(".mut_file" , ".exp_file"))
+P53_com.ref <- select(P53_com, Sample.Id, everything()) 
+        # summary(P53_com.ref)
+        # exp: 8075 NA
+
+# Now, if from the exp file it is NA (no sequence), copy p53 mutation status from mut file, since it is a more complete mutation status designation file, but lacks the "not mutated" designation
+# first convert mutation from factors to characters to allow replacement operation
+P53_com$P53.Mutation.mut_file <- as.character(P53_com$P53.Mutation.mut_file)
+P53_com$P53.Mutation.exp_file <- as.character(P53_com$P53.Mutation.exp_file)
+# replace missing mutation status
+P53_com$P53.Mutation.exp_file[is.na(P53_com$P53.Mutation.exp_file)] <- P53_com$P53.Mutation.mut_file[is.na(P53_com$P53.Mutation.exp_file)]
+  # "check where exp is NA, and replace with mut where there is NA'
+  # exp: 2006 NO sequence # recovered an additional 4615 designations
+
+# renaming NA as WT, assuming no mutation is equal to wild-type
+# because we know that NA in the exp are WT, we can assume those NA in the mut are also WT, we know that naming NA as WT in the mut file is in appropriate because some entries did not come explicitly designated, but we assume that if it is designated in the exp file as not mutated, then it must be an updated designation and can be overrided. If it is WT in the mut file but not WT in the exp, they are then excluded by subsetting in the next chunk.
+P53_com$P53.Mutation.mut_file[is.na(P53_com$P53.Mutation.mut_file)] <- "WT"
+P53_com$P53.Mutation.exp_file[is.na(P53_com$P53.Mutation.exp_file)] <- "WT"
+
+# removing non-matched mutation status rows via subsetting
+P53_com.sub <- subset(P53_com, P53.Mutation.exp_file == P53.Mutation.mut_file)
+P53_com.sub <- select(P53_com.sub, Sample.Id, P53.Mutation = P53.Mutation.exp_file, Case.Study = Cancer.Study.mut_file) # reordering columns and mut mutation column
+
+# Filtering p53 dataset 
+# Keeping only interested mutations and WT's
+
+P53.extended <- P53_com.sub %>% 
+  filter(  P53.Mutation == "R175H"|P53.Mutation == "R248Q"|
+           P53.Mutation == "R273H"|P53.Mutation == "R280K"|
+           P53.Mutation == "R273C"|P53.Mutation == "R248W"|
+           P53.Mutation == "Y220C"|P53.Mutation == "R249S"|
+           P53.Mutation == "G245D"|P53.Mutation == "WT"|
+           P53.Mutation == "R273C"| 
+           P53.Mutation == "R248Q"| 
+           P53.Mutation == "H179R"|
+           P53.Mutation == "R282W"|
+           P53.Mutation == "V157F"|
+           P53.Mutation == "H193R"|
+           P53.Mutation == "R158L"|
+           P53.Mutation == "R273L"| # selected based on data availiablility and our interest
+           P53.Mutation == "G248S") # we liked this way of subsetting instead of %in% subsetting
+
+# Comparing p53 extended and NOX4
+P53.ext_NOX4 <- inner_join(P53.extended, NOX4_exp, by="Sample.Id")
+P53.ext_NOX4 <- select(P53.ext_NOX4, Sample.Id, P53.Mutation, NOX4, Cancer.Study)
+# summary(as.factor(P53.ext_NOX4$P53.Mutation))
+#G245D H179R H193R R158L R175H R248Q R248W R249S R273C R273H R273L R280K R282W V157F    WT Y220C 
+# 16    42    33    33   101    66    62    23   115    77    29    11    42    37     2005 60 
+
+# Comparing p53 all availiable and NOX4
+# P53.all_NOX4 <- inner_join(P53_com.sub, NOX4_exp, by="Sample.Id")
+# P53.all_NOX4 <- select(P53.all_NOX4, Sample.Id, P53.Mutation, NOX4, Cancer.Study)
+# we will not conduct analysis with all p53 mutations because of the low avail. of data points
+```
+
+```{r Exploratory Analysis of p53 and NOX4, include=F}
+# log scale, extended p53 set
+# blue number indicates number of samples and red indicates median value
+initial <- ggplot(P53.ext_NOX4,aes(x=as.factor(P53.Mutation),y=log2(NOX4))) + 
+              geom_boxplot(show.legend = F) +
+              xlab("P53 Mutations") +
+              ylab("Log2 Relative NOX Expression (z-score)") +
+              stat_summary(fun.data = give.n, geom = "text", fun.y = median, colour = "blue") + 
+                                #fun.data and fun.y returns sample number
+              stat_summary(fun.data = med.n, geom = "text", fun.y = mean, colour = "red") + 
+                                # returns median
+              facet_wrap(~Cancer.Study, ncol=3)
+
+## from these plots, we will remove those cancer studies without enough samples availiable
+# blue number indicates number of samples and red indicates median value
+P53.NOX4.final <- P53.ext_NOX4 %>% 
+  filter(Cancer.Study == "Breast Invasive Carcinoma (TCGA, Provisional)"|
+         Cancer.Study == "Brain Lower Grade Glioma (TCGA, Provisional)"|
+         Cancer.Study == "Glioblastoma Multiforme (TCGA, Provisional)"|
+         Cancer.Study == "Head and Neck Squamous Cell Carcinoma (TCGA, Provisional)"|
+         Cancer.Study == "Lung Squamous Cell Carcinoma (TCGA, Provisional)"|
+         Cancer.Study == "Pancreatic Adenocarcinoma (TCGA, Provisional)"|
+         Cancer.Study == "Ovarian Serous Cystadenocarcinoma (TCGA, Provisional)"|
+         Cancer.Study == "Bladder Urothelial Carcinoma (TCGA, Provisional)"|
+         Cancer.Study == "Liver Hepatocellular Carcinoma (TCGA, Provisional)"|
+         Cancer.Study == "Sarcoma (TCGA, Provisional)") 
+P53.NOX4.final$Cancer.Study <- as.character(P53.NOX4.final$Cancer.Study)
+# ln scale, final. ln transformed because data were heavily skewed and not normally distributed. 
+# blue number indicates number of samples and red indicates median value
+overview.plot <- ggplot(P53.NOX4.final ,aes(x=as.factor(P53.Mutation),y=log10(NOX4))) + 
+  geom_boxplot(show.legend = F) +
+  xlab("P53 Mutations") +
+  ylab("Ln Transformed Relative NOX Expression (z-score)") +
+  stat_summary(fun.data = give.n, geom = "text", fun.y = median, colour = "blue") + #fun.data and fun.y returns sample number
+  stat_summary(fun.data = med.n, geom = "text", fun.y = mean, colour = "red") + # returns median
+  facet_wrap(~Cancer.Study, ncol=2) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+# General Notes
+P53 mutation status and expression data were first extracted from cbioportal data and cross-matched by Sample ID to obtain complete and validated p53 mutation status designations for each sample. Samples with ambiguous mutation status or lack designation were removed from the data set. Data were plotted as followed and analyzed by non-parametric Mann-Whitney Wilcoxon test (Wilcoxon Rank Sum and Signed Rank Tests). Differential threshold of p=0.05 were used to establish statistical significance. Some mutations were excluded from the Wilcoxon test due to low sample numbers in the specific mutation status in the corresponding cancer studies.
+
+# Breast Invasive Carcinoma
+```{r Breast}
+# Breast Invasive Carcinoma
+Breast <- filter(P53.NOX4.final, as.character(Cancer.Study) == "Breast Invasive Carcinoma (TCGA, Provisional)")
+breast.overview <- ggplot(Breast,aes(x=as.factor(P53.Mutation),y=log(NOX4))) + 
+  geom_boxplot(show.legend = F) +
+  ggtitle("Breast Invasive Carcinoma Overview") +
+  xlab("P53 Mutations") +
+  ylab("Ln Relative NOX Expression (z-score)") +
+  stat_summary(fun.data = give.n, geom = "text", fun.y = median, colour = "blue") + #fun.data and fun.y returns sample number
+  stat_summary(fun.data = med.n, geom = "text", fun.y = mean, colour = "red") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# WT breast
+Breast.WT <- filter(Breast, as.character(P53.Mutation) == "WT")
+# shapirot.test(Breast.WT)
+# Y220C breast
+Breast.Y220C <- filter(Breast, as.character(P53.Mutation) == "Y220C")
+# shapiro.test(Breast.Y220C$NOX4) # p<<<0, sample is not normally distributed
+wilcox.test(Breast.WT$NOX4, Breast.Y220C$NOX4) #p<<<0
+# R175H breast
+Breast.R175H <- filter(Breast, as.character(P53.Mutation) == "R175H")
+wilcox.test(Breast.WT$NOX4, Breast.R175H$NOX4) #p=0.005831
+# R248W breast
+Breast.R248W <- filter(Breast, as.character(P53.Mutation) == "R248W")
+wilcox.test(Breast.WT$NOX4, Breast.R248W$NOX4) #p=0.02264
+# G245D breast
+Breast.G245D <- filter(Breast, as.character(P53.Mutation) == "G245D")
+wilcox.test(Breast.WT$NOX4, Breast.G245D$NOX4) #p=0.1004
+# H179R breast
+Breast.H179R <- filter(Breast, as.character(P53.Mutation) == "H179R")
+wilcox.test(Breast.WT$NOX4, Breast.H179R$NOX4) #p=0.1811
+# R273C breast
+Breast.R273C <- filter(Breast, as.character(P53.Mutation) == "R273C")
+wilcox.test(Breast.WT$NOX4, Breast.R273C$NOX4) #p=0.02092
+# R273H breast
+Breast.R273H <- filter(Breast, as.character(P53.Mutation) == "R273H")
+wilcox.test(Breast.WT$NOX4, Breast.R273H$NOX4) #p=0.6
+# summary: breast, Y220C, R175H, R248W, R273C are statistically different
+
+# breast, final
+Breast.final <- filter(Breast, as.character(Cancer.Study) == "Breast Invasive Carcinoma (TCGA, Provisional)")
+Breast.final <- Breast[Breast$P53.Mutation %in% c("Y220C", "R175H", "R248W", "R273C", "WT"),] # subset 
+
+breast.final.plot <- 
+  ggplot(Breast.final,aes(x=as.factor(P53.Mutation),y=NOX4)) + 
+    geom_boxplot(show.legend = F) +
+    ggtitle("Breast Invasive Carcinoma") + 
+    theme(plot.title = element_text(face="bold"),
+          panel.border = element_rect(linetype = "solid", colour = "black")) +
+    theme_bw() +
+    xlab("P53 Mutations") +
+    ylab("Relative NOX Expression (z-score)") +
+    stat_summary(fun.data = give.n, geom = "text", fun.y = median, colour = "blue") + #fun.data and fun.y returns sample number
+    stat_summary(fun.data = med.n, geom = "text", fun.y = mean, colour = "red") +
+    scale_x_discrete(limits=c("Y220C", "R175H", "R248W", "R273C", "WT")) + # sets order 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+Y220C, R175H, R248W, R273C p53 mutants have statistically significant differences in terms of NOX4 expression when compared to wild-type.
+
+# Head and Neck Squamous Cell Carcinoma
+```{r Head and Neck}
+Neck<- filter(P53.NOX4.final, as.character(Cancer.Study) == "Head and Neck Squamous Cell Carcinoma (TCGA, Provisional)")
+
+neck.overview.plot <- ggplot(Neck,aes(x=as.factor(P53.Mutation),y=log(NOX4))) + 
+                          geom_boxplot(show.legend = F) +
+                          ggtitle("Head and Neck Squamous Cell Carcinoma Overview") +
+                          xlab("P53 Mutations") +
+                          ylab("Ln Relative NOX Expression (z-score)") +
+                          stat_summary(fun.data = give.n, geom = "text", fun.y = median, colour = "blue") + 
+                          stat_summary(fun.data = med.n, geom = "text", fun.y = mean, colour = "red") +
+                          theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# WT head and neck
+Neck.WT <- filter(Neck, as.character(P53.Mutation) == "WT")
+# H179R head and neck
+Neck.H179R <- filter(Neck, as.character(P53.Mutation) == "H179R")
+wilcox.test(Neck.H179R$NOX4, Neck.WT$NOX4) #p=0.7538
+# R175H head and neck
+Neck.R175H <- filter(Neck, as.character(P53.Mutation) == "R175H")
+wilcox.test(Neck.WT$NOX4, Neck.R175H$NOX4) #p=0.1089
+# R248Q head and neck
+Neck.R248Q <- filter(Neck, as.character(P53.Mutation) == "R248Q")
+wilcox.test(Neck.WT$NOX4, Neck.R248Q$NOX4) #p=0.3316
+# R248W head and neck
+Neck.R248W <- filter(Neck, as.character(P53.Mutation) == "R248W")
+wilcox.test(Neck.WT$NOX4, Neck.R248W$NOX4) #p=0.98
+# R273C head and neck
+Neck.R273C <- filter(Neck, as.character(P53.Mutation) == "R273C")
+wilcox.test(Neck.WT$NOX4, Neck.R273C$NOX4) #p=0.3099
+# R273H head and neck
+Neck.R273H <- filter(Neck, as.character(P53.Mutation) == "R273H")
+wilcox.test(Neck.WT$NOX4, Neck.R273H$NOX4) #p=0.005217
+# R282W head and neck
+Neck.R282W <- filter(Neck, as.character(P53.Mutation) == "R282W")
+wilcox.test(Neck.WT$NOX4, Neck.R282W$NOX4) #p=0.8604
+# V157F head and neck
+Neck.V157F <- filter(Neck, as.character(P53.Mutation) == "V157F")
+wilcox.test(Neck.WT$NOX4, Neck.V157F$NOX4) #p=0.09743
+# Y220C head and neck
+Neck.Y220C <- filter(Neck, as.character(P53.Mutation) == "Y220C")
+wilcox.test(Neck.WT$NOX4, Neck.Y220C$NOX4) #p=0.2265
+
+# Neck, final
+Neck.final <- filter(Neck, as.character(Cancer.Study) == "Neck Invasive Carcinoma (TCGA, Provisional)")
+Neck.final <- Neck[Neck$P53.Mutation %in% c("R273H", "WT"),] # subset 
+neck.final.plot <- ggplot(Neck.final,aes(x=as.factor(P53.Mutation),y=NOX4)) + 
+                      geom_boxplot(show.legend = F) +
+                      ggtitle("Head and Neck Squamous Cell Carcinoma ") + 
+                      theme(plot.title = element_text(face="bold"),
+                            panel.border = element_rect(linetype = "solid", colour = "black")) +
+                      theme_bw() +
+                      xlab("P53 Mutations") +
+                      ylab("Relative NOX Expression (z-score)") +
+                      stat_summary(fun.data = give.n, geom = "text", fun.y = median, colour = "blue") + 
+                      stat_summary(fun.data = med.n, geom = "text", fun.y = mean, colour = "red") +
+                      scale_x_discrete(limits=c("R273H", "WT")) +
+                      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+R273H p53 mutants have statistically significant differences in terms of NOX4 expression when compared to wild-type.
+
+# Lung Squamous Cell Carcinoma
+```{r Lung, include=F}
+Lung <- filter(P53.NOX4.final, as.character(Cancer.Study) == "Lung Squamous Cell Carcinoma (TCGA, Provisional)")
+
+lung.overview.plot <- ggplot(Lung,aes(x=as.factor(P53.Mutation),y=log(NOX4))) + 
+                        geom_boxplot(show.legend = F) +
+                        ggtitle("Lung Squamous Cell Carcinoma Overview") +
+                        xlab("P53 Mutations") +
+                        ylab("Ln Relative NOX Expression (z-score)") +
+                        stat_summary(fun.data = give.n, geom = "text", fun.y = median, colour = "blue") + 
+                        stat_summary(fun.data = med.n, geom = "text", fun.y = mean, colour = "red") +
+                        theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# WT lung
+Lung.WT <- filter(Lung, as.character(P53.Mutation) == "WT")
+# Y220C Lung
+Lung.Y220C <- filter(Lung, as.character(P53.Mutation) == "Y220C")
+wilcox.test(Lung.WT$NOX4, Lung.Y220C$NOX4) #p=0.7212
+# V157F Lung
+Lung.V157F <- filter(Lung, as.character(P53.Mutation) == "V157F")
+wilcox.test(Lung.WT$NOX4, Lung.V157F$NOX4) #p=0.4319
+# R282W Lung
+Lung.R282W <- filter(Lung, as.character(P53.Mutation) == "R282W")
+wilcox.test(Lung.WT$NOX4, Lung.R282W$NOX4) #p=0.8148
+# R273L Lung
+Lung.R273L <- filter(Lung, as.character(P53.Mutation) == "R273L")
+wilcox.test(Lung.WT$NOX4, Lung.R273L$NOX4) #p=0.596
+# R249S Lung
+Lung.R249S <- filter(Lung, as.character(P53.Mutation) == "R249S")
+wilcox.test(Lung.WT$NOX4, Lung.R249S$NOX4) #p=0.1051
+# R248W Lung
+Lung.R248W <- filter(Lung, as.character(P53.Mutation) == "R248W")
+wilcox.test(Lung.WT$NOX4, Lung.R248W$NOX4) #p=0.169
+# R248Q Lung
+Lung.R248Q <- filter(Lung, as.character(P53.Mutation) == "R248Q")
+wilcox.test(Lung.WT$NOX4, Lung.R248Q$NOX4) #p=0.799
+# R175H Lung
+Lung.R175H <- filter(Lung, as.character(P53.Mutation) == "R175H")
+wilcox.test(Lung.WT$NOX4, Lung.R175H$NOX4) #p=0.6763
+# R158L Lung
+Lung.R158L <- filter(Lung, as.character(P53.Mutation) == "R158L")
+wilcox.test(Lung.WT$NOX4, Lung.R158L$NOX4) #p=0.6197
+# no statistically significance in Lung
+```
+
+No Statistically Significant Data 
+
+# Pancreatic Adenocarcinoma
+```{r Panc}
+Panc <- filter(P53.NOX4.final, as.character(Cancer.Study) == "Pancreatic Adenocarcinoma (TCGA, Provisional)")
+
+panc.overview.plot <- ggplot(Panc,aes(x=as.factor(P53.Mutation),y=log(NOX4))) + 
+  geom_boxplot(show.legend = F) +
+  ggtitle("Panc Squamous Cell Carcinoma Overview") +
+  xlab("P53 Mutations") +
+  ylab("Ln Relative NOX Expression (z-score)") +
+  stat_summary(fun.data = give.n, geom = "text", fun.y = median, colour = "blue") + #fun.data and fun.y returns sample number
+  stat_summary(fun.data = med.n, geom = "text", fun.y = mean, colour = "red") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# WT Panc
+Panc.WT <- filter(Panc, as.character(P53.Mutation) == "WT")
+# R175H Panc
+Panc.R175H <- filter(Panc, as.character(P53.Mutation) == "R175H")
+wilcox.test(Panc.WT$NOX4, Panc.R175H$NOX4) #p=0.04364
+# R248W Panc
+Panc.R248W <- filter(Panc, as.character(P53.Mutation) == "R248W")
+wilcox.test(Panc.WT$NOX4, Panc.R248W$NOX4) #p=0.063333
+# R248Q Panc
+Panc.R248Q <- filter(Panc, as.character(P53.Mutation) == "R248Q")
+wilcox.test(Panc.WT$NOX4, Panc.R248Q$NOX4) #p=0.09556
+# R273C Panc
+Panc.R273C <- filter(Panc, as.character(P53.Mutation) == "R273C")
+wilcox.test(Panc.WT$NOX4, Panc.R273C$NOX4) #p=0.02702
+
+# Panc, final
+Panc.final <- Panc[Panc$P53.Mutation %in% c("R175H", "R273C", "WT"),] # subset 
+Panc.final.plot <- ggplot(Panc.final,aes(x=as.factor(P53.Mutation),y=NOX4)) + 
+  geom_boxplot(show.legend = F) +
+  ggtitle("Pancreatic Adenocarcinoma") + 
+  theme(plot.title = element_text(face="bold"),
+        panel.border = element_rect(linetype = "solid", colour = "black")) +
+  theme_bw() +
+  xlab("P53 Mutations") +
+  ylab("Relative NOX Expression (z-score)") +
+  stat_summary(fun.data = give.n, geom = "text", 
+               fun.y = median, colour = "blue") + #fun.data and fun.y returns sample number
+  stat_summary(fun.data = med.n, geom = "text", fun.y = mean, colour = "red") +
+  scale_x_discrete(limits=c("R175H", "R273C", "WT"))  +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+R175H and R273C p53 mutants have statistically significant differences in terms of NOX4 expression when compared to wild-type.
+
+# Brain Lower Grade Glioma
+```{r Brain}
+Brain<- filter(P53.NOX4.final, as.character(Cancer.Study) == "Brain Lower Grade Glioma (TCGA, Provisional)")
+
+brain.overview.plot <- ggplot(Brain,aes(x=as.factor(P53.Mutation),y=log(NOX4))) + 
+  geom_boxplot(show.legend = F) +
+  ggtitle("Brain Lower Grade Glioma Overview") +
+  xlab("P53 Mutations") +
+  ylab("Ln Relative NOX Expression (z-score)") +
+  stat_summary(fun.data = give.n, geom = "text", fun.y = median, colour = "blue") + #fun.data and fun.y returns sample number
+  stat_summary(fun.data = med.n, geom = "text", fun.y = mean, colour = "red") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# WT Brain
+Brain.WT <- filter(Brain, as.character(P53.Mutation) == "WT")
+# H179R Brain
+Brain.H179R <- filter(Brain, as.character(P53.Mutation) == "H179R")
+wilcox.test(Brain.H179R$NOX4, Brain.WT$NOX4) #p=0.04226
+# R175H Brain
+Brain.R175H <- filter(Brain, as.character(P53.Mutation) == "R175H")
+wilcox.test(Brain.WT$NOX4, Brain.R175H$NOX4) #p=0.1682
+# R248Q Brain
+Brain.R248Q <- filter(Brain, as.character(P53.Mutation) == "R248Q")
+wilcox.test(Brain.WT$NOX4, Brain.R248Q$NOX4) #p=0.01398
+# R248W Brain
+Brain.R248W <- filter(Brain, as.character(P53.Mutation) == "R248W")
+wilcox.test(Brain.WT$NOX4, Brain.R248W$NOX4) #p=0.0022446
+# R273C Brain
+Brain.R273C <- filter(Brain, as.character(P53.Mutation) == "R273C")
+wilcox.test(Brain.WT$NOX4, Brain.R273C$NOX4) #p<<<0
+# R273H Brain
+Brain.R273H <- filter(Brain, as.character(P53.Mutation) == "R273H")
+wilcox.test(Brain.WT$NOX4, Brain.R273H$NOX4) #p=0.2097
+# R282W Brain
+Brain.R282W <- filter(Brain, as.character(P53.Mutation) == "R282W")
+wilcox.test(Brain.WT$NOX4, Brain.R282W$NOX4) #p=0.009128
+# V157F Brain
+#Brain.V157F <- filter(Brain, as.character(P53.Mutation) == "V157F")
+#wilcox.test(Brain.WT$NOX4, Brain.V157F$NOX4) #no data
+# Y220C Brain
+Brain.Y220C <- filter(Brain, as.character(P53.Mutation) == "Y220C")
+wilcox.test(Brain.WT$NOX4, Brain.Y220C$NOX4) #p=0.5234
+# R273L Brain
+Brain.R273L <- filter(Brain, as.character(P53.Mutation) == "R273L")
+wilcox.test(Brain.WT$NOX4, Brain.R273L$NOX4) #p=0.3633
+# H193R Brain
+Brain.H193R <- filter(Brain, as.character(P53.Mutation) == "H193R")
+wilcox.test(Brain.WT$NOX4, Brain.H193R$NOX4) #p=0.1034
+
+# Brain Final
+Brain.final <- Brain[Brain$P53.Mutation %in% c("H179R","R248Q","R248W","R273C","R282W","WT"),] # subset 
+brain.final.plot <- ggplot(Brain.final,aes(x=as.factor(P53.Mutation),y=NOX4)) + 
+  geom_boxplot(show.legend = F) +
+  ggtitle("Brain Lower Grade Glioma") + 
+  theme(plot.title = element_text(face="bold"),
+        panel.border = element_rect(linetype = "solid", colour = "black")) +
+  theme_bw() +
+  xlab("P53 Mutations") +
+  ylab("Relative NOX Expression (z-score)") +
+  stat_summary(fun.data = give.n, geom = "text", 
+               fun.y = median, colour = "blue") + 
+  stat_summary(fun.data = med.n, geom = "text", fun.y = mean, colour = "red") +
+  scale_x_discrete(limits=c("H179R","R248Q","R248W","R273C","R282W","WT"))  +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+H179R, R248Q, R248W, R273C, R282W p53 mutants have statistically significant differences in terms of NOX4 expression when compared to wild-type. WTp53 NOX4 data was heavily skewed so the data were log transformed.
+
+# Glioblastoma Multiforme
+```{r Glioblastoma}
+Glio <- filter(P53.NOX4.final, as.character(Cancer.Study) == "Glioblastoma Multiforme (TCGA, Provisional)")
+
+glio.overview.plot <- ggplot(Glio,aes(x=as.factor(P53.Mutation),y=log(NOX4))) + 
+  geom_boxplot(show.legend = F) +
+  ggtitle("Glioblastoma Multiforme Overview") +
+  xlab("P53 Mutations") +
+  ylab("Ln Relative NOX Expression (z-score)") +
+  stat_summary(fun.data = give.n, geom = "text", fun.y = median, colour = "blue") +
+  stat_summary(fun.data = med.n, geom = "text", fun.y = mean, colour = "red") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# WT Glio
+Glio.WT <- filter(Glio, as.character(P53.Mutation) == "WT")
+# H179R Glio
+Glio.H179R <- filter(Glio, as.character(P53.Mutation) == "H179R")
+wilcox.test(Glio.H179R$NOX4, Glio.WT$NOX4) #p=0.05188
+# R248Q Glio
+Glio.R248Q <- filter(Glio, as.character(P53.Mutation) == "R248Q")
+wilcox.test(Glio.WT$NOX4, Glio.R248Q$NOX4) #p=0.547
+# R273H Glio
+Glio.R273H <- filter(Glio, as.character(P53.Mutation) == "R273H")
+wilcox.test(Glio.WT$NOX4, Glio.R273H$NOX4) #p=0.02944
+mood.test(Glio.WT$NOX4, Glio.R273H$NOX4) #p=0.5912
+
+```
+
+No Statistically Significant Data 
+
+# Bladder Urothelial Carcinoma
+```{r Bladder}
+bla<- filter(P53.NOX4.final, as.character(Cancer.Study) == "Bladder Urothelial Carcinoma (TCGA, Provisional)")
+
+bla.overview.plot <- ggplot(bla,aes(x=as.factor(P53.Mutation),y=log(NOX4))) + 
+                  geom_boxplot(show.legend = F) +
+                  ggtitle("Bladder Urothelial Carcinoma Overview") +
+                  xlab("P53 Mutations") +
+                  ylab("Ln Relative NOX Expression (z-score)") +
+                  stat_summary(fun.data = give.n, geom = "text", fun.y = median, colour = "blue") + 
+                  stat_summary(fun.data = med.n, geom = "text", fun.y = mean, colour = "red") +
+                  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# WT bla
+bla.WT <- filter(bla, as.character(P53.Mutation) == "WT")
+# R248Q bla
+bla.R248Q <- filter(bla, as.character(P53.Mutation) == "R248Q")
+wilcox.test(bla.WT$NOX4, bla.R248Q$NOX4) #p=0.05545
+mood.test(bla.WT$NOX4, bla.R248Q$NOX4) #p=0.1182
+
+```
+
+No Statistically Significant Data 
+
+# Liver Hep Carcinoma
+```{r Liver}
+Liver<- filter(P53.NOX4.final, as.character(Cancer.Study) == "Liver Hepatocellular Carcinoma (TCGA, Provisional)")
+
+Liver.overview.plot <- ggplot(Liver,aes(x=as.factor(P53.Mutation),y=log(NOX4))) + 
+  geom_boxplot(show.legend = F) +
+  ggtitle("Liver Hepatocellular Carcinoma Overview") +
+  xlab("P53 Mutations") +
+  ylab("Ln Relative NOX Expression (z-score)") +
+  stat_summary(fun.data = give.n, geom = "text", fun.y = median, colour = "blue") + #fun.data and fun.y returns sample number
+  stat_summary(fun.data = med.n, geom = "text", fun.y = mean, colour = "red") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# WT Liver
+Liver.WT <- filter(Liver, as.character(P53.Mutation) == "WT")
+# R249S Liver
+Liver.R249S <- filter(Liver, as.character(P53.Mutation) == "R249S")
+wilcox.test(Liver.WT$NOX4, Liver.R249S$NOX4) #p=0.01034
+
+# Liver Final
+Liver.final <- Liver[Liver$P53.Mutation %in% c("R249S","WT"),] # subset 
+Liver.final.plot <- ggplot(Liver.final,aes(x=as.factor(P53.Mutation),y=(NOX4))) + 
+  geom_boxplot(show.legend = F) +
+  ggtitle("Liver Hepatocellular Carcinoma ") + 
+  theme(plot.title = element_text(face="bold"),
+        panel.border = element_rect(linetype = "solid", colour = "black")) +
+  theme_bw() +
+  xlab("P53 Mutations") +
+  ylab("Relative NOX Expression (z-score)") +
+  stat_summary(fun.data = give.n, geom = "text", 
+               fun.y = median, colour = "blue") + 
+  stat_summary(fun.data = med.n, geom = "text", fun.y = mean, colour = "red") +
+  scale_x_discrete(limits=c("R249S","WT"))  +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+R249S p53 mutants have statistically significant differences in terms of NOX4 expression when compared to wild-type.
+
+# Ovarian Cystadenocarcinoma
+```{r Ovarian}
+Ovar<- filter(P53.NOX4.final, as.character(Cancer.Study) == "Ovarian Serous Cystadenocarcinoma (TCGA, Provisional)")
+
+Ovar.overview.plot <- ggplot(Ovar,aes(x=as.factor(P53.Mutation),y=log(NOX4))) + 
+  geom_boxplot(show.legend = F) +
+  ggtitle("Ovarian Serous Cystadenocarcinoma Overview") +
+  xlab("P53 Mutations") +
+  ylab("Ln Relative NOX Expression (z-score)") +
+  stat_summary(fun.data = give.n, geom = "text", fun.y = median, colour = "blue") + #fun.data and fun.y returns sample number
+  stat_summary(fun.data = med.n, geom = "text", fun.y = mean, colour = "red") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# WT Ovar
+Ovar.WT <- filter(Ovar, as.character(P53.Mutation) == "WT")
+# H179R Ovar
+Ovar.H179R <- filter(Ovar, as.character(P53.Mutation) == "H179R")
+wilcox.test(Ovar.H179R$NOX4, Ovar.WT$NOX4) #p=0.7648
+# R175H Ovar
+Ovar.R175H <- filter(Ovar, as.character(P53.Mutation) == "R175H")
+wilcox.test(Ovar.WT$NOX4, Ovar.R175H$NOX4) #p=0.149
+# R248Q Ovar
+Ovar.R248Q <- filter(Ovar, as.character(P53.Mutation) == "R248Q")
+wilcox.test(Ovar.WT$NOX4, Ovar.R248Q$NOX4) #p=0.0229
+# R273C Ovar
+Ovar.R273C <- filter(Ovar, as.character(P53.Mutation) == "R273C")
+wilcox.test(Ovar.WT$NOX4, Ovar.R273C$NOX4) #p=0.2997
+# R273H Ovar
+Ovar.R273H <- filter(Ovar, as.character(P53.Mutation) == "R273H")
+wilcox.test(Ovar.WT$NOX4, Ovar.R273H$NOX4) #p=0.5132
+# Y220C Ovar
+Ovar.Y220C <- filter(Ovar, as.character(P53.Mutation) == "Y220C")
+wilcox.test(Ovar.WT$NOX4, Ovar.Y220C$NOX4) #p=0.9572
+
+
+# Ovar Final
+Ovar.final <- Ovar[Ovar$P53.Mutation %in% c("R248Q","WT"),] # subset 
+Ovar.final.plot <- ggplot(Ovar.final,aes(x=as.factor(P53.Mutation),y=(NOX4))) + 
+  geom_boxplot(show.legend = F) +
+  ggtitle("Ovarian Serous Cystadenocarcinoma ") + 
+  theme(plot.title = element_text(face="bold"),
+        panel.border = element_rect(linetype = "solid", colour = "black")) +
+  theme_bw() +
+  xlab("P53 Mutations") +
+  ylab("Relative NOX Expression (z-score)") +
+  stat_summary(fun.data = give.n, geom = "text", 
+               fun.y = median, colour = "blue") + 
+  stat_summary(fun.data = med.n, geom = "text", fun.y = mean, colour = "red") +
+  scale_x_discrete(limits=c("R248Q","WT"))  +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+R248Q p53 mutants have statistically significant differences in terms of NOX4 expression when compared to wild-type.
+
+
+# Overview of Usable Data Sets
+```{r p53-nox4 graphs, echo=F, dpi=600, fig.height=16, fig.width=10, include = TRUE}
+# plotting the overview
+par(mar = c(0, 0, 0, 0))
+overview.plot
+```
+
+# Studies with Statistically Significant Differential Expression of NOX4
+```{r by cancer graph, dpi=600, fig.height=4, fig.width=6, include = T}
+# plotting various cancers
+par(mar = c(0, 0, 0, 0))
+brain.final.plot
+breast.final.plot
+neck.final.plot
+Liver.final.plot
+Ovar.final.plot
+Panc.final.plot
+```
+
+
+```{r appendix, include= F, eval=FALSE}
+# appendix codes ----
+#png("title.png", pointsize=18, res = 300, width=2600, height=2000) # function to write png 
+# insert ggplot code
+#dev.off() # tells R i am done plotting
+
+# all unique studies ----
+#> unique(P53.NOX4.final$Cancer.Study)
+#[1] "Bladder Urothelial Carcinoma (TCGA, Provisional)"          "Brain Lower Grade Glioma (TCGA, Provisional)"             
+#[3] "Breast Invasive Carcinoma (TCGA, Provisional)"             "Glioblastoma Multiforme (TCGA, Provisional)"              
+#[5] "Head and Neck Squamous Cell Carcinoma (TCGA, Provisional)" "Liver Hepatocellular Carcinoma (TCGA, Provisional)"       
+#[7] "Lung Squamous Cell Carcinoma (TCGA, Provisional)"          "Ovarian Serous Cystadenocarcinoma (TCGA, Provisional)"    
+#[9] "Pancreatic Adenocarcinoma (TCGA, Provisional)"             "Sarcoma (TCGA, Provisional)"                    
+```
+
+
+
