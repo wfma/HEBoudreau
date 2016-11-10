@@ -1,7 +1,7 @@
 ---
 output: word_document
 ---
-                       ---
+---
 title: "TCGA p53 Mutations and NOX4 Differential Expression Analysis"
 output: word_document
 ---
@@ -356,6 +356,8 @@ wilcox.test(Panc.WT$NOX4, Panc.R175H$NOX4) #p=0.04364
 # R248W Panc
 Panc.R248W <- filter(Panc, as.character(P53.Mutation) == "R248W")
 wilcox.test(Panc.WT$NOX4, Panc.R248W$NOX4) #p=0.063333
+wilcox.test(Panc.WT$NOX4, Panc.R248W$NOX4, alternative = "less") #p=0.03
+
 # R248Q Panc
 Panc.R248Q <- filter(Panc, as.character(P53.Mutation) == "R248Q")
 wilcox.test(Panc.WT$NOX4, Panc.R248Q$NOX4) #p=0.09556
@@ -364,7 +366,7 @@ Panc.R273C <- filter(Panc, as.character(P53.Mutation) == "R273C")
 wilcox.test(Panc.WT$NOX4, Panc.R273C$NOX4) #p=0.02702
 
 # Panc, final
-Panc.final <- Panc[Panc$P53.Mutation %in% c("R175H", "R273C", "WT"),] # subset 
+Panc.final <- Panc[Panc$P53.Mutation %in% c("R175H", "R273C", "WT", "R248W"),] # subset 
 Panc.final.plot <- ggplot(Panc.final,aes(x=as.factor(P53.Mutation),y=NOX4)) + 
   geom_boxplot(show.legend = F) +
   ggtitle("Pancreatic Adenocarcinoma") + 
@@ -376,7 +378,7 @@ Panc.final.plot <- ggplot(Panc.final,aes(x=as.factor(P53.Mutation),y=NOX4)) +
   stat_summary(fun.data = give.n, geom = "text", 
                fun.y = median, colour = "blue") + #fun.data and fun.y returns sample number
   stat_summary(fun.data = med.n, geom = "text", fun.y = mean, colour = "red") +
-  scale_x_discrete(limits=c("R175H", "R273C", "WT"))  +
+  scale_x_discrete(limits=c("R175H", "R273C","R248W", "WT"))  +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
@@ -406,6 +408,8 @@ wilcox.test(Brain.WT$NOX4, Brain.R175H$NOX4) #p=0.1682
 # R248Q Brain
 Brain.R248Q <- filter(Brain, as.character(P53.Mutation) == "R248Q")
 wilcox.test(Brain.WT$NOX4, Brain.R248Q$NOX4) #p=0.01398
+wilcox.test(Brain.WT$NOX4, Brain.R248Q$NOX4,alternative = c("less")) #p=0.006988 # nox4 in wt is greater..
+
 # R248W Brain
 Brain.R248W <- filter(Brain, as.character(P53.Mutation) == "R248W")
 wilcox.test(Brain.WT$NOX4, Brain.R248W$NOX4) #p=0.0022446
@@ -476,6 +480,7 @@ Glio.R273H <- filter(Glio, as.character(P53.Mutation) == "R273H")
 wilcox.test(Glio.WT$NOX4, Glio.R273H$NOX4) #p=0.02944
 mood.test(Glio.WT$NOX4, Glio.R273H$NOX4) #p=0.5912
 
+#quite skewed. skipped from analysis
 ```
 
 No Statistically Significant Data 
