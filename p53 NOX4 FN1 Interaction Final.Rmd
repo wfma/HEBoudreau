@@ -1,0 +1,239 @@
+---
+title: "Final Figure for P53 NOX4 FN1 Interaction"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F)
+```
+
+```{r, dpi=600, fig.height=1.45, fig.width=1.45, include = F, echo=F}
+### Libraries and functions----
+require(dplyr)
+require(stringr)
+require(ggplot2)
+require(extrafont)
+loadfonts()
+#load require(MASS) if you wish to run the box-cox code. "select" conflicts from dplyr and MASS
+# function for median
+give.n <- function(x) {
+  return(c(y = median(x) * 1.5, label = length(x)))
+  # experiment with the multiplier to find the perfect position
+}
+
+# function for mean labels
+med.n <- function(x) {
+  return(c(y = median(x) * 0.8, label = round(mean(x), 2)))
+  # experiment with the multiplier to find the perfect position
+}
+# if outputting as svg, make sure you installed XQuartz
+
+### Extracting Data from cbioportal/TCGA ----
+
+# http://www.cbioportal.org/
+# dplyr::select all case studies
+# query the genes and all its expression data regardless of exp level, e.g. GENE:EXP>=0 EXP<0
+
+### Read Tables ----
+P53_exp  <-
+  read.delim(file = "TP53_Expression_All.txt",
+             header = T,
+             na.strings = "NA")   # p53 with Expression Data
+P53_exp <-
+  P53_exp %>% dplyr::select(P53.Mutation = Mutation, Cancer.Study, Sample.Id)
+P53_exp <-
+  na.omit(P53_exp) # important to remove missing values now to avoid mixing with 'no mutation'
+
+P53_mut <-
+  read.delim("mutation_table_TP53.tsv",
+             header = T,
+             na.strings = "NA")
+P53_mut <-
+  P53_mut %>% dplyr::select(P53.Mutation = AA.change, Cancer.Study, Sample.Id = Sample.ID)
+P53_mut <- na.omit(P53_mut)
+
+NOX4_exp  <-
+  read.delim(file = "NOX4_Expression_All.txt")   # NADPH OX 4
+NOX4_exp  <-
+  NOX4_exp %>% dplyr::select(NOX4 = Value,
+                             NOX4.Mutation = Mutation,
+                             Cancer.Study,
+                             Sample.Id)
+
+FN1_exp   <-
+  read.delim(file = "FN1_Expression_All.txt")   # fibronectin
+FN1_exp  <-
+  FN1_exp %>% dplyr::select(FN1 = Value,
+                            FN1.Mutation = Mutation,
+                            Cancer.Study,
+                            Sample.Id)
+
+
+# Data extract of P53 mutation status of samples
+
+### Data Clean Up p53 ----
+#'Not Sequenced' data is now designated as NA
+P53_mut$P53.Mutation[(P53_mut$P53.Mutation == "Not Sequenced")]   <-
+  NA
+P53_mut$P53.Mutation[(P53_mut$P53.Mutation == "[Not Available]")] <-
+  NA
+
+P53_exp$P53.Mutation[(P53_exp$P53.Mutation == "Not Sequenced")]   <-
+  NA
+P53_exp$P53.Mutation[(P53_exp$P53.Mutation == "[Not Available]")] <-
+  NA
+
+# Merging two p53 Data Files to get more mutant reads on all ID's
+P53_com <-
+  full_join(P53_mut,
+            P53_exp,
+            by = "Sample.Id",
+            suffix = c(".mut_file" , ".exp_file"))
+P53_com <- dplyr::select(P53_com, Sample.Id, everything())
+# mut: 6623 NO sequence
+# exp: 8075 NO sequence
+
+# Merged Copy, for reference later
+P53_com.ref <-
+  full_join(P53_mut,
+            P53_exp,
+            by = "Sample.Id",
+            suffix = c(".mut_file" , ".exp_file"))
+P53_com.ref <- dplyr::select(P53_com, Sample.Id, everything())
+
+# Now, if from the exp file it is NA, copy p53 mutation status from mut file
+# first convert mutation from factors to characters to allow replacement operation
+P53_com$P53.Mutation.mut_file <-
+  as.character(P53_com$P53.Mutation.mut_file)
+P53_com$P53.Mutation.exp_file <-
+  as.character(P53_com$P53.Mutation.exp_file)
+# replace missing mutation status
+P53_com$P53.Mutation.exp_file[is.na(P53_com$P53.Mutation.exp_file)] <-
+  P53_com$P53.Mutation.mut_file[is.na(P53_com$P53.Mutation.exp_file)]
+# "check where exp is NA, and replace with mut where there is NA'
+# mut: 2006 NO sequence
+# exp: 6623 NO sequence, leaving 10013 obs at this level
+
+# renaming NA as WT, assuming no mutation is equal to wild-type
+# because we know that NA in the exp are WT, we can assume those NA in the mut are also WT
+P53_com$P53.Mutation.mut_file[is.na(P53_com$P53.Mutation.mut_file)] <-
+  "WT"
+P53_com$P53.Mutation.exp_file[is.na(P53_com$P53.Mutation.exp_file)] <-
+  "WT"
+
+# removing non-matched mutation status rows via subsetting
+P53_com.sub <-
+  subset(P53_com, P53.Mutation.exp_file == P53.Mutation.mut_file)
+P53_com.sub <-
+  dplyr::select(P53_com.sub,
+                Sample.Id,
+                P53.Mutation = P53.Mutation.exp_file,
+                Case.Study = Cancer.Study.mut_file) # reordering columns and mut mutation column
+# Filtering p53 dataset
+# Keeping only interested mutations and WT's
+
+P53.extended <- P53_com.sub %>%
+  filter(
+    P53.Mutation == "R175H" | P53.Mutation == "R248Q" |
+      P53.Mutation == "R273H" | P53.Mutation == "R280K" |
+      P53.Mutation == "R273C" | P53.Mutation == "R248W" |
+      P53.Mutation == "Y220C" | P53.Mutation == "R249S" |
+      P53.Mutation == "G245D" | P53.Mutation == "WT" |
+      P53.Mutation == "R273C" | # in addition to dplyr::select
+      P53.Mutation == "R248Q" |
+      # dplyr::selected based on data availiablility
+      P53.Mutation == "R282W" |
+      P53.Mutation == "R273L" |
+      P53.Mutation == "G248S"
+  )
+
+# Comparing p53 extended and NOX4
+P53.ext_NOX4 <- inner_join(P53.extended, NOX4_exp, by = "Sample.Id")
+P53.ext_NOX4 <-
+  dplyr::select(P53.ext_NOX4, Sample.Id, P53.Mutation, NOX4, Cancer.Study)
+
+# summary(as.factor(P53.ext_NOX4$P53.Mutation))
+#G245D H179R H193R R158L R175H R248Q R248W R249S R273C R273H R273L R280K R282W V157F    WT Y220C
+# 16    42    33    33   101    66    62    23   115    77    29    11    42    37     2005 60
+
+# Comparing p53 all availiable and NOX4
+P53.all_NOX4 <- inner_join(P53_com.sub, NOX4_exp, by = "Sample.Id")
+P53.all_NOX4 <-
+  dplyr::select(P53.all_NOX4, Sample.Id, P53.Mutation, NOX4, Cancer.Study)
+
+# Load data in NOX4 EMT.R
+p53_NOX4_FN1 <- inner_join(P53.ext_NOX4, FN1_exp, by = "Sample.Id")
+p53_NOX4_FN1 <-
+  dplyr::select(p53_NOX4_FN1, Sample.Id, FN1, NOX4, P53.Mutation, Cancer.Study = Cancer.Study.x)
+
+## to remove "(TCGA, Provision)"
+p53_NOX4_FN1$Cancer.Study <-
+  str_replace_all(as.character(p53_NOX4_FN1$Cancer.Study),
+                  "(TCGA, Provisional)",
+                  "")
+p53_NOX4_FN1$Cancer.Study <-
+  str_replace_all(as.character(p53_NOX4_FN1$Cancer.Study), "\\(", "")
+p53_NOX4_FN1$Cancer.Study <-
+  str_replace_all(as.character(p53_NOX4_FN1$Cancer.Study), "\\)", "")
+p53_NOX4_FN1$Cancer.Study <-
+  str_trim(p53_NOX4_FN1$Cancer.Study, side = "both")
+
+p53_NOX4_FN1.final <- p53_NOX4_FN1[p53_NOX4_FN1$Cancer.Study %in% c("Breast Invasive Carcinoma",
+                                                                    "Head and Neck Squamous Cell Carcinoma",
+                                                                    "Pancreatic Adenocarcinoma"), ]
+p53_NOX4_FN1.final$NOX4.1 <- p53_NOX4_FN1.final$NOX4 + 1 # add 1 for log trans 0
+p53_NOX4_FN1.final$FN1.1  <- p53_NOX4_FN1.final$FN1  + 1
+
+cors.p53_NOX4_FN1.final <- p53_NOX4_FN1.final %>%
+  group_by(Cancer.Study) %>%
+  summarise(corl = cor(log(NOX4.1), log(FN1.1), method = "spearman"))
+```
+
+```{r, dpi=600, fig.width=1.45, fig.height=1.45, include=F}
+# Breast
+# color
+color15 <-
+  c(
+    "#1C86EE",
+    "#FF4040",
+    "#00FFFF",
+    "#EE7621",
+    "#0000EE",
+    "#EE6AA7",
+    "#CAFF70",
+    "#F0E68C",
+    "#00FF00",
+    "#030303",
+    "#B0B0B0",
+    "#FFBBFF",
+    "#FFFF00",
+    "#BFEFFF",
+    "#CD9B1D",
+    "#8A2BE2"
+  )
+
+breast.p <-  p53_NOX4_FN1.final[p53_NOX4_FN1.final$Cancer.Study %in% c("Breast Invasive Carcinoma"),]
+```
+
+```{r, fig.width = 8, fig.height=3.5, dpi=900}
+p53_NOX4_FN1.final$Cancer.Study <- factor(p53_NOX4_FN1.final$Cancer.Study, levels=c("Breast Invasive Carcinoma", "Pancreatic Adenocarcinoma", "Head and Neck Squamous Cell Carcinoma")) # changes the order with factor()
+
+ggplot(p53_NOX4_FN1.final, aes(x = log(NOX4.1), y = log(FN1.1))) +
+  geom_point(aes(color=P53.Mutation)) +
+  geom_smooth(method = "lm") +
+  labs(x = "log(NOX4 mRNA Expression)", y = "log(Fibronectin mRNA Expression)") +
+  facet_wrap( ~ Cancer.Study, ncol = 3) +
+  ggtitle(NULL) + 
+  theme(panel.border = element_rect(linetype = "solid", colour = "black")) +
+  theme_bw() +
+  xlab(NULL) +
+  ylab(NULL) +
+  theme(panel.grid.minor.y=element_blank(),
+        panel.grid.minor.x=element_blank(),
+        panel.grid.major.x=element_blank(),
+        panel.grid.major.y=element_blank(), panel.background = element_rect(color = "black", size = 4),
+        axis.text.y = element_text(family = "Calibri", size=16),
+        axis.text.x = element_text(family = "Calibri", size=16),
+        axis.ticks = element_line(size=2)) +
+  scale_colour_manual(values=color15)
+```
