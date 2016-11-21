@@ -141,7 +141,6 @@ P53.extended <- P53_com.sub %>%
       P53.Mutation == "G245D" | P53.Mutation == "WT" |
       P53.Mutation == "R273C" | # in addition to dplyr::select
       P53.Mutation == "R248Q" |
-      # dplyr::selected based on data availiablility
       P53.Mutation == "R282W" |
       P53.Mutation == "R273L" |
       P53.Mutation == "G248S"
@@ -151,15 +150,6 @@ P53.extended <- P53_com.sub %>%
 P53.ext_NOX4 <- inner_join(P53.extended, NOX4_exp, by = "Sample.Id")
 P53.ext_NOX4 <-
   dplyr::select(P53.ext_NOX4, Sample.Id, P53.Mutation, NOX4, Cancer.Study)
-
-# summary(as.factor(P53.ext_NOX4$P53.Mutation))
-#G245D H179R H193R R158L R175H R248Q R248W R249S R273C R273H R273L R280K R282W V157F    WT Y220C
-# 16    42    33    33   101    66    62    23   115    77    29    11    42    37     2005 60
-
-# Comparing p53 all availiable and NOX4
-P53.all_NOX4 <- inner_join(P53_com.sub, NOX4_exp, by = "Sample.Id")
-P53.all_NOX4 <-
-  dplyr::select(P53.all_NOX4, Sample.Id, P53.Mutation, NOX4, Cancer.Study)
 
 # Load data in NOX4 EMT.R
 p53_NOX4_FN1 <- inner_join(P53.ext_NOX4, FN1_exp, by = "Sample.Id")
@@ -181,7 +171,7 @@ p53_NOX4_FN1$Cancer.Study <-
 p53_NOX4_FN1.final <- p53_NOX4_FN1[p53_NOX4_FN1$Cancer.Study %in% c("Breast Invasive Carcinoma",
                                                                     "Head and Neck Squamous Cell Carcinoma",
                                                                     "Pancreatic Adenocarcinoma"), ]
-p53_NOX4_FN1.final$NOX4.1 <- p53_NOX4_FN1.final$NOX4 + 1 # add 1 for log trans 0
+p53_NOX4_FN1.final$NOX4.1 <- p53_NOX4_FN1.final$NOX4 + 1 # add 1 for log transformation of 0's
 p53_NOX4_FN1.final$FN1.1  <- p53_NOX4_FN1.final$FN1  + 1
 
 cors.p53_NOX4_FN1.final <- p53_NOX4_FN1.final %>%
@@ -190,8 +180,7 @@ cors.p53_NOX4_FN1.final <- p53_NOX4_FN1.final %>%
 ```
 
 ```{r, dpi=600, fig.width=1.45, fig.height=1.45, include=F}
-# Breast
-# color
+# color schemes defined manually
 color15 <-
   c(
     "#1C86EE",
@@ -212,11 +201,10 @@ color15 <-
     "#8A2BE2"
   )
 
-breast.p <-  p53_NOX4_FN1.final[p53_NOX4_FN1.final$Cancer.Study %in% c("Breast Invasive Carcinoma"),]
 ```
 
 ```{r, fig.width = 8, fig.height=3.5, dpi=900}
-p53_NOX4_FN1.final$Cancer.Study <- factor(p53_NOX4_FN1.final$Cancer.Study, levels=c("Breast Invasive Carcinoma", "Pancreatic Adenocarcinoma", "Head and Neck Squamous Cell Carcinoma")) # changes the order with factor()
+p53_NOX4_FN1.final$Cancer.Study <- factor(p53_NOX4_FN1.final$Cancer.Study, levels=c("Breast Invasive Carcinoma", "Pancreatic Adenocarcinoma", "Head and Neck Squamous Cell Carcinoma")) # changes the order with factor(level=)
 
 ggplot(p53_NOX4_FN1.final, aes(x = log(NOX4.1), y = log(FN1.1))) +
   geom_point(aes(color=P53.Mutation)) +
