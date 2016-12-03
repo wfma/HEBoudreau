@@ -137,8 +137,9 @@ P53.extended <- P53_com.sub %>%
     P53.Mutation == "R175H" | P53.Mutation == "R248Q" |
       P53.Mutation == "R273H" | P53.Mutation == "R280K" |
       P53.Mutation == "R273C" | P53.Mutation == "R248W" |
-      P53.Mutation == "Y220C" | P53.Mutation == "R249S" |
-      P53.Mutation == "G245D" | P53.Mutation == "WT" |
+      P53.Mutation == "R249S" |
+      P53.Mutation == "G245D" | 
+      P53.Mutation == "WT"    |
       P53.Mutation == "R273C" | # in addition to dplyr::select
       P53.Mutation == "R248Q" |
       P53.Mutation == "R282W" |
@@ -224,4 +225,21 @@ ggplot(p53_NOX4_FN1.final, aes(x = log(NOX4.1), y = log(FN1.1))) +
         axis.text.x = element_text(family = "Calibri", size=16),
         axis.ticks = element_line(size=2)) +
   scale_colour_manual(values=color15)
+
+# p values and n
+panc <- p53_NOX4_FN1.final[p53_NOX4_FN1.final$Cancer.Study %in% c("Pancreatic Adenocarcinoma"),]
+summary(lm(log(panc$FN1.1)~log(panc$NOX4.1)))
+summary(unique(panc$Sample.Id))
+
+breast <- p53_NOX4_FN1.final[p53_NOX4_FN1.final$Cancer.Study %in% c("Breast Invasive Carcinoma"),]
+summary(lm(log(breast$FN1.1)~log(breast$NOX4.1)))
+summary(unique(breast$Sample.Id))
+
+
+neck <- p53_NOX4_FN1.final[p53_NOX4_FN1.final$Cancer.Study %in% c("Head and Neck Squamous Cell Carcinoma"),]
+summary(lm(log(neck$FN1.1)~log(neck$NOX4.1)))
+
+
+cors.p53_NOX4_FN1.final 
+
 ```
